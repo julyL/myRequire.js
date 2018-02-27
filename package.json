@@ -1,0 +1,25 @@
+{
+  "name": "simple-require.js-master",
+  "version": "1.0.0",
+  "description": "实现一个简单的require.js",
+  "dependencies": {
+    "koa": "^2.5.0",
+    "koa-static": "^4.0.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/julyL/simple-require.js.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/julyL/simple-require.js/issues"
+  },
+  "homepage": "https://github.com/julyL/simple-require.js#readme"
+}
