@@ -16,6 +16,7 @@ var define, require;
   function loadDep(relativePath) {
     var src = getAbsolutePath(relativePath);
     if (_Modules[src] && _Modules[src].status == "end") {
+      // 当前src对应的js已经加载完依赖并执行了define的回调
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
@@ -28,6 +29,7 @@ var define, require;
         };
         loadJs(src);
       } else if (_Modules[src] == "wait") {
+        // js已经load但还未执行
         _Modules[src].resolve = resolve;
       }
     });
@@ -74,7 +76,7 @@ var define, require;
 
   /**
    * 加载依赖,并声明当前js的导出值(供require使用)
-   * @param {Array} dep 依赖的js
+   * @param {Array or Function} dep 依赖的js (也可以没有设置依赖,直接为成功的回调函数)
    * @param {Function} successCb 成功回调
    * @param {Function} failCb 失败回调
    */
@@ -82,6 +84,7 @@ var define, require;
     var src = document.currentScript.src,
       result = [];
     if (_Modules[src] && _Modules[src].status == "start") {
+      // 如果当前js中如果执行了多个define函数,则以最先加载好依赖并执行的那个define回调的return值作为当前js的导出值。
       _Modules[src].status = "wait";
       if (Array.isArray(dep)) {
         _Modules[src].dep = dep;
@@ -171,8 +174,7 @@ var define, require;
             circleList = circleArr.concat(path);
             break;
           } else {
-            if (_Modules[path]) {
-              // 感觉这里有问题...
+            if (_Modules[path] && _Modules[path].dep.length != 0) {
               check(_Modules[path].dep, circleArr.concat(path));
             }
           }

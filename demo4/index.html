@@ -9,6 +9,7 @@
 <body>
     <script src="../myRequire.js" data-main="./main.js"></script>
     <!-- <script src="../require.js" data-main="./main.js"></script> -->
+    <h3>a中引用了b,b中的define回调中又执行了require('a',fn) 此时fn不会执行</h3>
 </body>
 
 </html>
