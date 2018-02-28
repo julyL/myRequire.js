@@ -15,16 +15,21 @@ var define, require;
    */
   function loadDep(relativePath) {
     var src = getAbsolutePath(relativePath);
-    if (_Modules[src]) {
+    if (_Modules[src] && _Modules[src].status == "end") {
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-      _Modules[src] = {
-        uid: src,
-        status: "pending",
-        resolve: resolve
-      };
-      loadJs(src);
+      if (!_Modules[src]) {
+        _Modules[src] = {
+          uid: src,
+          dep: [],
+          status: "start",
+          resolve: resolve
+        };
+        loadJs(src);
+      } else if (_Modules[src] == "wait") {
+        _Modules[src].resolve = resolve;
+      }
     });
   }
 
@@ -33,11 +38,11 @@ var define, require;
    * @param {Array} arr js路径组成的数组
    */
   function loadDepArrray(arr) {
-    return arr.reduce((pre, current) => {
-      return pre.then(() => {
-        return loadDep(current);
-      });
-    }, Promise.resolve());
+    return Promise.all(
+      arr.map(v => {
+        return loadDep(v);
+      })
+    );
   }
 
   /**
@@ -57,7 +62,11 @@ var define, require;
           successCb.apply(null, result);
         },
         err => {
-          failCb(err);
+          if (failCb) {
+            failCb(err);
+          } else {
+            console.error(err);
+          }
         }
       );
     }
@@ -72,8 +81,15 @@ var define, require;
   function _define(dep, successCb, failCb) {
     var src = document.currentScript.src,
       result = [];
-    if (_Modules[src] && _Modules[src].status == "pending") {
+    if (_Modules[src] && _Modules[src].status == "start") {
+      _Modules[src].status = "wait";
       if (Array.isArray(dep)) {
+        _Modules[src].dep = dep;
+        var check = checkCircleDependence(src);
+        if (check.iscircle) {
+          console.error("script exist loop dependence:\n", check.circleList.join(" => "));
+          return;
+        }
         loadDepArrray(dep).then(
           v => {
             dep.forEach(fielname => {
@@ -81,20 +97,22 @@ var define, require;
             });
             _Modules[src].resolve();
             assign(_Modules[src], {
-              status: "resolved",
-              dep: dep,
+              status: "end",
               result: successCb.apply(null, result)
             });
           },
           err => {
-            failCb(err);
+            if (failCb) {
+              failCb(err);
+            } else {
+              console.error(err);
+            }
           }
         );
       } else if (isFunction(dep)) {
         _Modules[src].resolve();
         assign(_Modules[src], {
-          status: "resolved",
-          dep: [],
+          status: "end",
           result: dep()
         });
       }
@@ -136,6 +154,35 @@ var define, require;
         target[i] = obj[i];
       }
     }
+  }
+
+  function checkCircleDependence(uid) {
+    var iscircle = false,
+      circleList = [],
+      path,
+      len;
+    (function check(dep, circleArr) {
+      len = dep.length;
+      if (len > 0) {
+        for (let i = 0; i < len; i++) {
+          path = getAbsolutePath(dep[i]);
+          if (circleArr.indexOf(path) != -1) {
+            iscircle = true;
+            circleList = circleArr.concat(path);
+            break;
+          } else {
+            if (_Modules[path]) {
+              // 感觉这里有问题...
+              check(_Modules[path].dep, circleArr.concat(path));
+            }
+          }
+        }
+      }
+    })(_Modules[uid].dep, [uid]);
+    return {
+      iscircle: iscircle,
+      circleList: circleList
+    };
   }
 
   function loadJs(src) {
