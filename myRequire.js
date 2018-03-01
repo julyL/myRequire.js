@@ -28,7 +28,7 @@ var define, require;
           resolve: resolve
         };
         loadJs(src);
-      } else if (_Modules[src] == "wait") {
+      } else if (_Modules[src].status == "wait") {
         // js已经load但还未执行
         _Modules[src].resolve = resolve;
       }
