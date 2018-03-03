@@ -1,3 +1,14 @@
+/** 
+ * _Modules对象以script的绝对路径作为key,
+ * value为
+ * {
+      uid: src,           // script绝对路径
+      dep: [],            // 当前script的执行依赖
+      status: "start",    // 表示script的状态  start: 开始异步加载  wait: 正在等待所需依赖加载,回调还未执行  end:依赖加载完毕,回调已经执行
+      resolves: [resolve] // 将Promise状态变为resolved的resolve函数组成的数组
+    }
+ * 
+*/
 var define, require;
 (function() {
   var main = document.currentScript.getAttribute("data-main"), // document.currentScript为当前正在执行的js(也就是myRequire.js)
@@ -25,12 +36,12 @@ var define, require;
           uid: src,
           dep: [],
           status: "start",
-          resolve: resolve
+          resolves: [resolve]
         };
         loadJs(src);
-      } else if (_Modules[src].status == "wait") {
+      } else {
         // js已经load但还未执行
-        _Modules[src].resolve = resolve;
+        _Modules[src].resolves.push(resolve);
       }
     });
   }
@@ -83,11 +94,14 @@ var define, require;
   function _define(dep, successCb, failCb) {
     var src = document.currentScript.src,
       result = [];
+
+    // 只有当前script是通过被require或者define所依赖时,才h执行下面的代码
     if (_Modules[src] && _Modules[src].status == "start") {
-      // 如果当前js中如果执行了多个define函数,则以最先加载好依赖并执行的那个define回调的return值作为当前js的导出值。
+      // 如果当前js中如果执行了多个define函数,只有第一个define有效
       _Modules[src].status = "wait";
       if (Array.isArray(dep)) {
         _Modules[src].dep = dep;
+
         var check = checkCircleDependence(src);
         if (check.iscircle) {
           console.error("script exist loop dependence:\n", check.circleList.join(" => "));
@@ -95,10 +109,12 @@ var define, require;
         }
         loadDepArrray(dep).then(
           v => {
+            _Modules[src].resolves.forEach(resolve => {
+              resolve();
+            });
             dep.forEach(fielname => {
               result.push(_Modules[getAbsolutePath(fielname)].result);
             });
-            _Modules[src].resolve();
             assign(_Modules[src], {
               status: "end",
               result: successCb.apply(null, result)
@@ -113,7 +129,9 @@ var define, require;
           }
         );
       } else if (isFunction(dep)) {
-        _Modules[src].resolve();
+        _Modules[src].resolves.forEach(resolve => {
+          resolve();
+        });
         assign(_Modules[src], {
           status: "end",
           result: dep()
@@ -159,6 +177,10 @@ var define, require;
     }
   }
 
+  /**
+   * 检查uid对应的script是否存在循环依赖的情况
+   * @param {String} uid
+   */
   function checkCircleDependence(uid) {
     var iscircle = false,
       circleList = [],

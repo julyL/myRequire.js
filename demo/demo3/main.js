@@ -1,4 +1,3 @@
-// 最简单的例子
 require(["a", "b"], function(a, b) {
   console.log("excute main");
 }, function(err) {
