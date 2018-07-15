@@ -1,30 +1,46 @@
 ## myRequire.js
-> 一个简单的模块加载工具,自己随便先写玩的,跟require.js没任何关系
+> 自己写的一个简单的模块加载工具,主要用于学习模块加载和依赖处理,具体使用可查看[示例demo](https://github.com/julyL/myRequire.js/tree/master/demo)
 
 #### 使用说明
 
+引入`myRequire.js`,将入口文件的地址赋值给`data-main`,入口文件会在`myRequire.js`执行时加载
+
 ```html
-// data-main为入口文件
 <script src="myRequire.js" data-main="./main.js"></script>
 ```
 
-##### require方法
+#### 入口文件
 ```js
- require(dep,successCallback,failCallback);
-//  dep必须为数组,里面的值可以试相对路径
-//  successCallback为成功回调
-//  failCallback为失败回调
+// main.js
+require(["a"], function (a) {
+  console.log(a);
+}, function () {
+  console.error("fail");
+});
 ```
-
-##### define方法
+#### 依赖模块
 ```js
- define(dep,successCallback,failCallback);
-//  dep可选传,每个js文件相当于一个模块只能执行一个define方法
+// a.js
+define(['./b'],function (b) {
+  return {
+    a: 'aaa',
+    b: b
+  };
+});
 ```
-**注:require和define的路径是相对于当前页面**
+require接受3个参数`require(dep,successCallback,failCallback)`
 
-[源码地址](https://github.com/julyL/myRequire.js/myRequire.js)
+1. dep必须为数组,里面的值为js路径
+2. successCallback为成功回调
+3. failCallback为失败回调
 
-[查看示例](https://github.com/julyL/myRequire.js/tree/master/demo)
+define同样接受3个参数`define(dep,successCallback,failCallback)`但需要注意几点:
+
+1. dep为可选传
+2. 由于依赖模块的加载是通过依赖模块的路径实现的,一个模块对应一个路径,一个路径对应一个js文件,所以每个js文件只能执行一次`define`方法进行导出(执行多个define会默认采用第一个define)
+---
+[源码地址](https://github.com/julyL/myRequire.js/blob/master/myRequire.js)
+
+
 
 
