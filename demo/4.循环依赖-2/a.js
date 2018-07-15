@@ -1,5 +1,5 @@
 console.log("excute [a.js]");
-define(["log"], function(log) {
+define(function () {
   console.log("excute callback [a.js]");
   return {};
 });

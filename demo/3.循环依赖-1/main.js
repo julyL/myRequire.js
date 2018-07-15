@@ -1,6 +1,6 @@
-require(["a", "b"], function(a, b) {
+require(["a", "b"], function (a, b) {
   a.hello();
   b.world();
-}, function(err) {
+}, function (err) {
   console.error(err, "Something wrong with the dependent modules.");
 });
