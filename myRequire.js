@@ -1,33 +1,19 @@
-/** 
- * _Modules对象以script的绝对路径作为key,
- * value为
- * {
-      uid: src,           // script绝对路径
-      dep: [],            // 当前script的执行依赖
-      status: "start",    // 表示script的状态  start: 开始异步加载  wait: 正在等待所需依赖加载,回调还未执行  end:依赖加载完毕,回调已经执行
-      resolves: [resolve] // 将Promise状态变为resolved的resolve函数组成的数组
-    }
- * 
-*/
-var define, require;
-(function() {
-  var main = document.currentScript.getAttribute("data-main"), // document.currentScript为当前正在执行的js(也就是myRequire.js)
-    _Modules = {};
+/**
+ * Created by julyL
+ */
+(function (global) {
 
-  define = _define;
-  require = _require;
-
-  // 加载入口文件
-  loadJs(main);
+  const _Modules = {};
 
   /**
-   * 返回一个Promise,当relativePath对应的js加载自身所有依赖之后,Promise对象变为resolved
-   * @param {String} relativePath 单个js路径
+   * 返回一个Promise, 当filepath的所有依赖模块加载之后变为resolved
+   * @param {*} filepath
+   * @returns Promise
    */
-  function loadDep(relativePath) {
-    var src = getAbsolutePath(relativePath);
+  function loadDep(filepath) {
+    var src = getAbsolutePath(filepath);
     if (_Modules[src] && _Modules[src].status == "end") {
-      // 当前src对应的js已经加载完依赖并执行了define的回调
+      // filepath的所有依赖模块已经执行define的回调
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
@@ -38,17 +24,18 @@ var define, require;
           status: "start",
           resolves: [resolve]
         };
-        loadJs(src);
+        return loadJs(src);
       } else {
-        // js已经load但还未执行
+        // 当前依赖已经被引入了
         _Modules[src].resolves.push(resolve);
       }
     });
   }
 
   /**
-   * 返回一个Promise对象,当数组中的所有依赖都加载完之后,该Promise对象变为resolved
-   * @param {Array} arr js路径组成的数组
+   * 当数组中的所有依赖都加载完之后, 该Promise对象变为resolved
+   * @param {Array} arr 依赖模块组成的数组
+   * @returns Promise
    */
   function loadDepArrray(arr) {
     return Promise.all(
@@ -67,10 +54,11 @@ var define, require;
   function _require(dep, successCb, failCb) {
     var result = [];
     if (Array.isArray(dep)) {
-      loadDepArrray(dep).then(
-        v => {
-          dep.forEach(fielname => {
-            result.push(_Modules[getAbsolutePath(fielname)].result);
+      loadDepArrray(dep).then(v => {
+          // 将各个依赖的执行结果放入result中
+          dep.forEach(filepath => {
+            let path = getAbsolutePath(filepath);
+            result.push(_Modules[path].result);
           });
           successCb.apply(null, result);
         },
@@ -78,7 +66,7 @@ var define, require;
           if (failCb) {
             failCb(err);
           } else {
-            console.error(err);
+            console.error("[myRequire] error:", err);
           }
         }
       );
@@ -95,72 +83,92 @@ var define, require;
     var src = document.currentScript.src,
       result = [];
 
-    // 只有当前script是通过被require或者define所依赖时,才h执行下面的代码
+    // 只有当前script是通过被require或者define所依赖时,才会执行下面的代码
     if (_Modules[src] && _Modules[src].status == "start") {
-      // 如果当前js中如果执行了多个define函数,只有第一个define有效
+
+      // 每个js文件执行多次define时只有第一个执行的define有效
       _Modules[src].status = "wait";
+
       if (Array.isArray(dep)) {
         _Modules[src].dep = dep;
 
-        var check = checkCircleDependence(src);
+        // 检测是否存在循环依赖
+        var check = checkCircularDependencies(src);
         if (check.iscircle) {
-          console.error("script exist loop dependence:\n", check.circleList.join(" => "));
+          console.error("[myRequire]: script exist circular dependencies:\n", check.circleList.join(" => "));
           return;
         }
-        loadDepArrray(dep).then(
-          v => {
+
+        loadDepArrray(dep).then(v => {
+            // 执行依赖模块resolves中所有resolve函数,借此通知所有依赖当前模块的【父模块】,当前模块已经执行完毕,可以进行后续操作 
             _Modules[src].resolves.forEach(resolve => {
               resolve();
             });
-            dep.forEach(fielname => {
-              result.push(_Modules[getAbsolutePath(fielname)].result);
+
+            // 将各个依赖的执行结果放入result中
+            dep.forEach(filepath => {
+              let path = getAbsolutePath(filepath);
+              result.push(_Modules[path].result);
             });
-            assign(_Modules[src], {
-              status: "end",
-              result: successCb.apply(null, result)
-            });
+
+            _Modules[src].status = "end";
+            _Modules[src].result = successCb.apply(null, result); // 传入依赖执行结果,执行回调
+
           },
           err => {
             if (failCb) {
               failCb(err);
             } else {
-              console.error(err);
+              console.error("[myRequire] error:", err);
             }
           }
         );
-      } else if (isFunction(dep)) {
+      } else if (isFunction(dep)) { // 没有依赖只传了回调的情况
         _Modules[src].resolves.forEach(resolve => {
           resolve();
         });
-        assign(_Modules[src], {
-          status: "end",
-          result: dep()
-        });
+
+        _Modules[src].status = "end";
+        _Modules[src].result = dep();
+
       }
     }
   }
 
   /**
+   * TODO:
    * 返回引用的js的绝对路径
    * @param {String} filepath
+   * @returns {String}
    */
   function getAbsolutePath(filepath) {
+    // http,https直接返回
+    if (/^https?/.test(filepath)) {
+      return filepath
+    }
+
     var div = document.createElement("div"),
       href;
+
     div.innerHTML = "<a href=./></a>";
-    href = div.firstChild.href; // 获取当前页面绝对路径
-    if (!/^.+\.js/.test(filepath)) {
-      // 'a' => 'a.js'
+    // 获取当前页面绝对路径
+    href = div.firstChild.href;
+
+    // 自动添加.js后缀
+    if (!/^.+\.js$/.test(filepath)) {
       filepath = filepath + ".js";
     }
-    filepath = filepath.replace(/^(\.)?\//, ""); // './a.js' , '/a.js'  =>  'a.js'
 
-    var m = filepath.match(/\.\.\//g); //   处理  '../../a.js'
-    if (m == null) {
+    // 将'./a.js'和'/a.js'转换为'a.js'
+    filepath = filepath.replace(/^(\.)?\//, "");
+
+    // 处理'../'
+    var matchList = filepath.match(/\.\.\//g);
+    if (matchList == null) {
       return href + filepath;
     } else {
       var s = href.split("/");
-      s = s.slice(0, -(m.length + 1));
+      s = s.slice(0, -(matchList.length + 1));
       return s.join("/") + "/" + filepath.replace("../", "");
     }
   }
@@ -169,28 +177,20 @@ var define, require;
     return typeof fn == "function";
   }
 
-  function assign(target, obj) {
-    for (var i in obj) {
-      if (obj.hasOwnProperty(i)) {
-        target[i] = obj[i];
-      }
-    }
-  }
-
   /**
-   * 检查uid对应的script是否存在循环依赖的情况
-   * @param {String} uid
+   * 检测js是否存在循环依赖
+   * @param {String} src
+   * @returns {Object}
    */
-  function checkCircleDependence(uid) {
+  function checkCircularDependencies(src) {
     var iscircle = false,
-      circleList = [],
-      path,
-      len;
+      circleList = [];
     (function check(dep, circleArr) {
-      len = dep.length;
+      let len = dep.length;
       if (len > 0) {
         for (let i = 0; i < len; i++) {
-          path = getAbsolutePath(dep[i]);
+          let path = getAbsolutePath(dep[i]);
+          // circleArr存放当前模块的所有依赖,如果新加载的模块已经存在于circleArr,说明存在【循环依赖】的情况
           if (circleArr.indexOf(path) != -1) {
             iscircle = true;
             circleList = circleArr.concat(path);
@@ -202,17 +202,38 @@ var define, require;
           }
         }
       }
-    })(_Modules[uid].dep, [uid]);
+    })(_Modules[src].dep, [src]);
     return {
-      iscircle: iscircle,
-      circleList: circleList
+      iscircle: iscircle, // 是否循环
+      circleList: circleList // 循环依赖模块组成的队列
     };
   }
 
+  /**
+   * 加载js文件
+   * @param {string} src js路径
+   */
   function loadJs(src) {
     var script = document.createElement("script");
     script.src = src;
     document.body.appendChild(script);
-    console.log("load ", src);
+    return new Promise((resolve, reject) => {
+      script.onload = () => {
+        console.log("[myRequire]: load ", src);
+        resolve();
+      }
+      script.onerror = () => {
+        console.log("[myRequire]: load fail ", src);
+        reject();
+      }
+    })
   }
-})();
+
+  var main = document.currentScript.getAttribute("data-main");
+
+  // 根据data-main加载入口文件
+  loadJs(main);
+  global.define = _define;
+  global.require = _require;
+
+})(window);
