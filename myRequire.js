@@ -12,11 +12,14 @@
    */
   function loadDep(filepath) {
     var src = getAbsolutePath(filepath);
+
+    // 依赖模块已经加载并导出结果
     if (_Modules[src] && _Modules[src].status == "end") {
-      // filepath的所有依赖模块已经执行define的回调
       return Promise.resolve();
     }
+
     return new Promise((resolve, reject) => {
+      // 对依赖模块进行初始化
       if (!_Modules[src]) {
         _Modules[src] = {
           uid: src,
@@ -26,7 +29,7 @@
         };
         return loadJs(src);
       } else {
-        // 当前依赖已经被引入了
+        // 当前依赖模块正在加载中
         _Modules[src].resolves.push(resolve);
       }
     });
@@ -37,7 +40,7 @@
    * @param {Array} arr 依赖模块组成的数组
    * @returns Promise
    */
-  function loadDepArrray(arr) {
+  function loadDepArray(arr) {
     return Promise.all(
       arr.map(v => {
         return loadDep(v);
@@ -53,24 +56,26 @@
    */
   function _require(dep, successCb, failCb) {
     var result = [];
-    if (Array.isArray(dep)) {
-      loadDepArrray(dep).then(v => {
-          // 将各个依赖的执行结果放入result中
-          dep.forEach(filepath => {
-            let path = getAbsolutePath(filepath);
-            result.push(_Modules[path].result);
-          });
-          successCb.apply(null, result);
-        },
-        err => {
-          if (failCb) {
-            failCb(err);
-          } else {
-            console.error("[myRequire] error:", err);
-          }
-        }
-      );
+    if (!Array.isArray(dep)) {
+      console.error('[myRequire] error: the first Argument of require must be an Array');
+      return;
     }
+    loadDepArray(dep).then(v => {
+        dep.forEach(filepath => {
+          let path = getAbsolutePath(filepath);
+          result.push(_Modules[path].result);
+        });
+        // 将依赖模块的导出结果按照顺序依次传入
+        successCb.apply(null, result);
+      },
+      err => {
+        if (failCb) {
+          failCb(err);
+        } else {
+          console.error("[myRequire] error:", err);
+        }
+      }
+    );
   }
 
   /**
@@ -83,56 +88,61 @@
     var src = document.currentScript.src,
       result = [];
 
-    // 只有当前script是通过被require或者define所依赖时,才会执行下面的代码
-    if (_Modules[src] && _Modules[src].status == "start") {
-
-      // 每个js文件执行多次define时只有第一个执行的define有效
-      _Modules[src].status = "wait";
-
-      if (Array.isArray(dep)) {
-        _Modules[src].dep = dep;
-
-        // 检测是否存在循环依赖
-        var check = checkCircularDependencies(src);
-        if (check.iscircle) {
-          console.error("[myRequire]: script exist circular dependencies:\n", check.circleList.join(" => "));
-          return;
-        }
-
-        loadDepArrray(dep).then(v => {
-            // 执行依赖模块resolves中所有resolve函数,借此通知所有依赖当前模块的【父模块】,当前模块已经执行完毕,可以进行后续操作 
-            _Modules[src].resolves.forEach(resolve => {
-              resolve();
-            });
-
-            // 将各个依赖的执行结果放入result中
-            dep.forEach(filepath => {
-              let path = getAbsolutePath(filepath);
-              result.push(_Modules[path].result);
-            });
-
-            _Modules[src].status = "end";
-            _Modules[src].result = successCb.apply(null, result); // 传入依赖执行结果,执行回调
-
-          },
-          err => {
-            if (failCb) {
-              failCb(err);
-            } else {
-              console.error("[myRequire] error:", err);
-            }
-          }
-        );
-      } else if (isFunction(dep)) { // 没有依赖只传了回调的情况
-        _Modules[src].resolves.forEach(resolve => {
-          resolve();
-        });
-
-        _Modules[src].status = "end";
-        _Modules[src].result = dep();
-
-      }
+    // define定义的模块必须是被require或者其他define所依赖,才能执行回调 
+    if (!_Modules[src]) {
+      return;
     }
+    // 每个js文件执行多次define时只有第一个执行的define有效
+    if (_Modules[src] && _Modules[src].status != "start") {
+      console.warn('[myRequire]: define excuted more then once in ' + src);
+      return;
+    }
+
+    _Modules[src].status = "loading";
+    if (Array.isArray(dep)) {
+      _Modules[src].dep = dep;
+
+      // 检测是否存在循环依赖
+      var check = checkCircularDependencies(src);
+      if (check.iscircle) {
+        console.error("[myRequire]: exist circular dependencies:\n", check.circleList.join(" => "));
+        return;
+      }
+
+      loadDepArray(dep).then(v => {
+          // 执行依赖模块resolves中所有resolve函数,借此通知所有依赖当前模块的【父模块】,当前模块已经执行完毕,可以进行后续操作 
+          _Modules[src].resolves.forEach(resolve => {
+            resolve();
+          });
+
+          // 将各个依赖的执行结果放入result中
+          dep.forEach(filepath => {
+            let path = getAbsolutePath(filepath);
+            result.push(_Modules[path].result);
+          });
+
+          _Modules[src].status = "end";
+          _Modules[src].result = successCb.apply(null, result); // 传入依赖执行结果,执行回调
+
+        },
+        err => {
+          if (failCb) {
+            failCb(err);
+          } else {
+            console.error("[myRequire] error:", err);
+          }
+        }
+      );
+    } else if (isFunction(dep)) { // 没有依赖只传了回调的情况
+      _Modules[src].resolves.forEach(resolve => {
+        resolve();
+      });
+
+      _Modules[src].status = "end";
+      _Modules[src].result = dep();
+
+    }
+
   }
 
   /**
@@ -223,8 +233,7 @@
         resolve();
       }
       script.onerror = () => {
-        console.log("[myRequire]: load fail ", src);
-        reject();
+        reject("fail load " + src);
       }
     })
   }
